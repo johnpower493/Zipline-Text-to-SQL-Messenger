@@ -48,7 +48,7 @@ ollama pull qwen3:4b
 ### 4) Copy env and set tokens
 cp .env.example .env
 # then edit .env
-
+```
 .env keys
 
 SLACK_BOT_TOKEN — from “Install App” → Bot User OAuth Token (xoxb-...)
@@ -60,6 +60,7 @@ OLLAMA_MODEL — e.g. qwen3:4b
 SQLITE_PATH — ./chinook.db (or your DB)
 
 Optional: SCHEMA_YAML_PATH if you want to override auto-introspection
+```
 
 ### 5) Slack app setup (one-shot manifest)
 
