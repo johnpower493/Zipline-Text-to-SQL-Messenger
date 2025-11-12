@@ -97,6 +97,7 @@ Try: /dd top 5 customers by total spend
 Use the Export CSV / Plot Data buttons.
 
 ### Architecture
+```
 Slack Slash Commands  +  Interactivity (Buttons/Selects)
                 | (HTTP Webhooks)
                 v
@@ -108,6 +109,7 @@ Slack Slash Commands  +  Interactivity (Buttons/Selects)
                 |
                 v
           SQLite (read-only) → results → CSV / Plot → Slack files.upload
+```
 
 ### Security & Guardrails
 
