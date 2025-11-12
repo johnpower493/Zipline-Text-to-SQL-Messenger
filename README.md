@@ -15,6 +15,7 @@ Ask questions in Slack → get **safe, read-only SQL** (SQLite) via **Ollama** (
   - Buttons: **Export CSV**, **Plot Data** (choose X/Y, uploads chart)
 
 ### Query examples:
+![Query_step_3](examples/query3.gif)
 ![Query step 1](examples/query1.png)
 ![Query step 2](examples/query2.png)
 ### Guard rails example:
