@@ -26,10 +26,10 @@ Ask questions in Slack → get **safe, read-only SQL** (SQLite) via **Ollama** (
 
 ### 2) Clone & install
 
--`git clone https://github.com/johnpower493/Slack-SQL-Cockpit-Local-LLM.git`
--`cd slack-sql-copilot`
--`python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate`
--`pip install -r requirements.txt`
+`git clone https://github.com/johnpower493/Slack-SQL-Cockpit-Local-LLM.git` \
+`cd slack-sql-copilot` \
+`python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate` \
+`pip install -r requirements.txt` \
 
 ### 3) Pull a local model
 
