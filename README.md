@@ -12,12 +12,11 @@ Ask questions in Slack → get **safe, read-only SQL** (SQLite) via **Ollama** (
   - Generates a **SQLite SELECT** using your schema
   - Executes against **Chinook** (or your DB)
   - Replies with a paginated table
-  - Buttons: **Export CSV**, **Plot Data** (choose X/Y, uploads chart) \
-  - 
-![alt text]https://github.com/johnpower493/Slack-SQL-Cockpit-Local-LLM/blob/main/examples/query1.png "Query Example")
-![alt text]https://github.com/johnpower493/Slack-SQL-Cockpit-Local-LLM/blob/main/examples/query2.png "Query Example")
-https://github.com/johnpower493/Slack-SQL-Cockpit-Local-LLM/blob/main/examples/guardrails.png
-https://github.com/johnpower493/Slack-SQL-Cockpit-Local-LLM/blob/main/examples/plot.png
+  - Buttons: **Export CSV**, **Plot Data** (choose X/Y, uploads chart)
+![Query step 1](examples/query1.png)
+![Query step 2](examples/query2.png)
+![Guardrails example](examples/guardrails.png)
+![Plot example](examples/plot.png)
 ---
 
 ## Quickstart
