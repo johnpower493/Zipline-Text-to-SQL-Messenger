@@ -237,25 +237,101 @@ def slack_post_message(channel_id, text=None, blocks=None):
 
 def slack_upload_file(ch_id, file_bytes, filename, title=None, initial_comment=None):
     """
-    Uploads a file directly to Slack so no public URL is needed.
-    """
-    files = {"file": (filename, file_bytes)}
-    data = {
-        "channels": ch_id,
-        "filename": filename
-    }
-    if title:
-        data["title"] = title
-    if initial_comment:
-        data["initial_comment"] = initial_comment
+    Upload a file to Slack using the new external upload flow:
+      1) files.getUploadURLExternal
+      2) POST bytes to the returned upload_url
+      3) files.completeUploadExternal
 
+    Returns (ok: bool, resp: dict|str)
+    """
+    if not SLACK_BOT_TOKEN:
+        err = "SLACK_BOT_TOKEN is not set"
+        print("Slack upload error:", err)
+        return False, err
+
+    # ---------- 1) Get upload URL + file_id ----------
     headers = {
         "Authorization": f"Bearer {SLACK_BOT_TOKEN}"
     }
-    r = requests.post(f"{SLACK_API_BASE}/files.upload", headers=headers, data=data, files=files)
-    if not r.ok:
-        print("Slack files.upload error:", r.text)
-    return r.ok, r.json() if r.ok else r.text
+
+    length = len(file_bytes)
+
+    # Slack accepts token either as header OR form field.
+    # We'll send both to be extra-safe.
+    data = {
+        "filename": filename,
+        "length": length,
+        "token": SLACK_BOT_TOKEN,
+    }
+
+    r1 = requests.post(
+        f"{SLACK_API_BASE}/files.getUploadURLExternal",
+        headers=headers,
+        data=data,
+        timeout=30,
+    )
+
+    if not r1.ok:
+        print("files.getUploadURLExternal HTTP error:", r1.status_code, r1.text)
+        return False, r1.text
+
+    j1 = r1.json()
+    if not j1.get("ok"):
+        print("files.getUploadURLExternal Slack error:", j1)
+        return False, j1
+
+    upload_url = j1["upload_url"]
+    file_id    = j1["file_id"]
+
+    # ---------- 2) Upload bytes to upload_url ----------
+    # Docs: can send raw bytes or multipart; raw bytes is simplest. :contentReference[oaicite:1]{index=1}
+    r2 = requests.post(
+        upload_url,
+        data=file_bytes,
+        headers={"Content-Type": "application/octet-stream"},
+        timeout=60,
+    )
+
+    if not r2.ok:
+        print("Upload to upload_url HTTP error:", r2.status_code, r2.text)
+        return False, r2.text
+
+    # ---------- 3) Complete upload + share to channel ----------
+    complete_payload = {
+        "files": [
+            {
+                "id": file_id,
+                "title": title or filename,
+            }
+        ],
+        "channel_id": ch_id,
+    }
+    if initial_comment:
+        complete_payload["initial_comment"] = initial_comment
+
+    r3 = requests.post(
+        f"{SLACK_API_BASE}/files.completeUploadExternal",
+        headers={
+            "Authorization": f"Bearer {SLACK_BOT_TOKEN}",
+            "Content-Type": "application/json; charset=utf-8",
+        },
+        json=complete_payload,
+        timeout=30,
+    )
+
+    if not r3.ok:
+        print("files.completeUploadExternal HTTP error:", r3.status_code, r3.text)
+        return False, r3.text
+
+    j3 = r3.json()
+    if not j3.get("ok"):
+        print("files.completeUploadExternal Slack error:", j3)
+        return False, j3
+
+    # Success 🎉
+    return True, j3
+
+
 
 # Keep in-memory selections per user
 axis_selections = {}
@@ -266,6 +342,23 @@ def store_axis_selection(user_id, axis_type, selection):
 def fetch_axis_selection(user_id):
     s = axis_selections.get(user_id, {})
     return s.get("X"), s.get("Y"), s.get("CSV")
+
+def extract_sql_from_original_message(payload):
+    """
+    Pull the SQL back out of the original Slack message text:
+    e.g. "SQL Query (SQLite): ```SELECT ...``` ..."
+    """
+    original = (payload.get("original_message") or {}).get("text") or ""
+    m = re.search(r"```(.*?)```", original, re.DOTALL)
+    if not m:
+        return None
+
+    sql = m.group(1).strip()
+    # Strip optional leading "sql\n" and trailing semicolon
+    sql = re.sub(r"^sql\n", "", sql, flags=re.IGNORECASE).strip()
+    sql = sql.rstrip(";").strip()
+    return sql or None
+
 
 # ================
 # ROUTE: downloads
@@ -367,18 +460,34 @@ def handle_query():
 @app.route('/slack/interactions', methods=['POST'])
 def slack_interactions():
     try:
-        payload = json.loads(request.form.get('payload') or "{}")
+        # Log the raw form payload from Slack
+        print(">>> /slack/interactions HIT")
+        print("RAW FORM:", dict(request.form))
+
+        payload_raw = request.form.get('payload') or "{}"
+        print("RAW payload string:", payload_raw)
+
+        payload = json.loads(payload_raw)
+        print("PARSED payload:", json.dumps(payload, indent=2))
+
         response_url = payload.get('response_url')
         actions = payload.get('actions', [])
         channel_id = payload.get('channel', {}).get('id')
         user_id = payload.get('user', {}).get('id')
 
+        print("channel_id:", channel_id, "user_id:", user_id)
+        print("actions:", actions)
+
         if not actions:
+            print("No actions in payload")
             return jsonify({"text": "No actions found."}), 200
 
         for action in actions:
+            # For Block Kit you'll get action_id; for legacy attachments you'll get name
             action_id = action.get('action_id') or action.get('name')
             value = action.get('value', '')
+
+            print("ACTION_ID:", action_id, "VALUE:", value)
 
             if action_id in ['select_x_axis', 'select_y_axis']:
                 selected = action['selected_option']['value']
@@ -395,24 +504,39 @@ def slack_interactions():
                 ).start()
                 return jsonify({"text": "Generating plot..."}), 200
 
-
             elif action_id == 'export_csv':
-                threading.Thread(target=export_csv_from_interaction,
-                                args=(value, response_url, payload), daemon=True).start()
+                threading.Thread(
+                    target=export_csv_from_interaction,
+                    args=(value, response_url, payload),
+                    daemon=True
+                ).start()
                 return jsonify({"text": "Exporting CSV..."}), 200
 
             elif action_id == 'plot':
-                # Do NOT upload file; keep it local and show axis pickers ephemerally
-                threading.Thread(target=prepare_plot_from_query,
-                                args=(value, response_url, payload), daemon=True).start()
+                threading.Thread(
+                    target=prepare_plot_from_query,
+                    args=(value, response_url, payload),
+                    daemon=True
+                ).start()
                 return jsonify({"text": "Preparing plot options..."}), 200
-
 
             elif action_id in ['next', 'previous']:
                 page_str, query_text = value.split("|", 1)
                 page_number = int(page_str)
-                threading.Thread(target=process_query_for_page, args=(query_text, response_url, page_number)).start()
+                threading.Thread(
+                    target=process_query_for_page,
+                    args=(query_text, response_url, page_number),
+                ).start()
                 return jsonify({"text": f"Loading page {page_number}..."}), 200
+
+        # 🔴 If we get here, no branch matched – this is what caused your 500.
+        print("Unrecognized action. actions:", actions)
+        return jsonify({"text": "Action received but no handler matched."}), 200
+
+    except Exception as e:
+        print("Interaction error:", e)
+        return jsonify({"text": f"Error: {str(e)}"}), 500
+
 
     except Exception as e:
         print("Interaction error:", e)
@@ -421,9 +545,17 @@ def slack_interactions():
 def prepare_plot_from_query(query_text, response_url, payload):
     user_id = payload['user']['id']
 
-    csv_content = generate_csv(query_text)
+    sql_from_msg = extract_sql_from_original_message(payload)
+    if sql_from_msg:
+        csv_content = generate_csv(sql_query=sql_from_msg)
+    else:
+        csv_content = generate_csv(query_text=query_text)
+
     if not csv_content:
-        requests.post(response_url, json={"response_type":"ephemeral","text":"CSV generation failed."})
+        requests.post(response_url, json={
+            "response_type": "ephemeral",
+            "text": "CSV generation failed while preparing plot."
+        })
         return
 
     csv_path = save_csv_to_storage(csv_content, query_text)
@@ -474,7 +606,7 @@ def process_query_for_page(query_text, response_url, page_number):
 
     buttons = [
         make_button("export_csv", "Export as CSV", query_text),
-        make_button("plot", "Plot Data", query_text),
+        make_button("plot", "Bar Plot", query_text),
     ]
     if total_pages > 1:
         prev_page = max(1, page_number - 1)
@@ -516,57 +648,85 @@ def save_csv_to_storage(csv_content, query_text):
         f.write(csv_content)
     return path
 
-def generate_csv(query_text):
-    sql_query = get_sql_query(query_text, DATABASE_SCHEMA)
+def generate_csv(query_text=None, sql_query=None):
+    """
+    Generate a CSV from either:
+      - an existing SQL query (preferred), or
+      - an NL question via the LLM (fallback).
+    """
+    if sql_query is None:
+        if not query_text:
+            return None
+        sql_query = get_sql_query(query_text, DATABASE_SCHEMA)
+
     if not sql_query:
         return None
+
     result = execute_sql_query(sql_query)
     if isinstance(result, dict) and "error" in result:
+        print("generate_csv SQL error:", result["error"])
         return None
-    df = pd.DataFrame(json.loads(result))
+
+    try:
+        df = pd.DataFrame(json.loads(result))
+    except Exception as e:
+        print("generate_csv JSON/DF error:", e)
+        return None
+
+    if df.empty:
+        # You might still want a CSV with just headers, but this keeps your old behaviour.
+        return df.to_csv(index=False)
     return df.to_csv(index=False)
+
 
 def export_csv_from_interaction(query_text, response_url, payload):
     user_id = payload['user']['id']
     channel_id = payload.get('channel', {}).get('id')
-    csv_content = generate_csv(query_text)
+
+    # Prefer the exact SQL used in the original message
+    sql_from_msg = extract_sql_from_original_message(payload)
+    if sql_from_msg:
+        csv_content = generate_csv(sql_query=sql_from_msg)
+    else:
+        # Fallback: regenerate from the NL question if needed
+        csv_content = generate_csv(query_text=query_text)
+
     if not csv_content:
-        requests.post(response_url, json={"text": "CSV generation failed."})
+        requests.post(response_url, json={
+            "response_type": "ephemeral",
+            "text": "CSV generation failed (could not produce SQL or query returned an error)."
+        })
         return
 
     csv_path = save_csv_to_storage(csv_content, query_text)
-    store_axis_selection(user_id, 'CSV', csv_path)
 
-    # Upload file to Slack directly
+    # ⬇️ OPTIONAL: you can skip storing CSV here since plotting uses the 'plot' flow
+    # store_axis_selection(user_id, 'CSV', csv_path)
+
+    # Upload CSV to Slack
     with open(csv_path, "rb") as f:
-        slack_upload_file(
-            channel_id, f.read(),
+        ok, resp = slack_upload_file(
+            channel_id,
+            f.read(),
             filename=os.path.basename(csv_path),
             title="Query Export",
             initial_comment="Here is your CSV file."
         )
 
-    # (NO EARLY RETURN HERE) ➜ go on to show axis pickers:
-    columns = get_columns_from_csv(csv_path)
-    if not columns:
-        requests.post(response_url, json={"text": "CSV uploaded. (No columns found for plotting.)"})
+    if not ok:
+        requests.post(response_url, json={
+            "response_type": "ephemeral",
+            "text": f"Failed to upload CSV to Slack: `{resp}`"
+        })
         return
 
-    blocks = [
-        {"type": "section", "text": {"type": "mrkdwn", "text": "CSV uploaded. Select axes to generate a plot."}},
-        {"type": "actions","elements": [
-            {"type": "static_select","placeholder":{"type":"plain_text","text":"Select X-axis"},
-             "options":[{"text":{"type":"plain_text","text":c},"value":c} for c in columns],
-             "action_id":"select_x_axis"},
-            {"type": "static_select","placeholder":{"type":"plain_text","text":"Select Y-axis"},
-             "options":[{"text":{"type":"plain_text","text":c},"value":c} for c in columns],
-             "action_id":"select_y_axis"},
-            {"type": "button","text":{"type":"plain_text","text":"Generate Plot"},
-             "value": query_text,  # pass original query along!
-             "action_id":"generate_plot_button"}
-        ]}
-    ]
-    requests.post(response_url, json={"response_type": "ephemeral", "blocks": blocks})
+    # ✅ Done: just confirm upload, no axis-picker UI
+    requests.post(response_url, json={
+        "response_type": "ephemeral",
+        "text": "CSV uploaded ✅"
+    })
+
+
 
 
 
