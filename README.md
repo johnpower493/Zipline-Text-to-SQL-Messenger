@@ -1,4 +1,4 @@
-# Data Distillery Slack SQL Copilot with Local LLM
+# Data Distillery Slack SQL Cockpit with Local LLM
 
 Ask questions in Slack → get **safe, read-only SQL** (SQLite) via **Ollama** (IBM Granite Micro or any local model), plus **paginated results**, **CSV export**, and **inline plots** — no data leaves your machine.
 
@@ -26,10 +26,10 @@ Ask questions in Slack → get **safe, read-only SQL** (SQLite) via **Ollama** (
 
 ### 2) Clone & install
 
-git clone https://github.com/johnpower493/slack-sql-copilot.git
-cd slack-sql-copilot
-python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+`git clone https://github.com/johnpower493/Slack-SQL-Cockpit-Local-LLM.git` \
+`cd slack-sql-copilot` \
+`python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate` \
+`pip install -r requirements.txt` \
 
 ### 3) Pull a local model
 
