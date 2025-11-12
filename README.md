@@ -14,6 +14,14 @@ Ask questions in Slack → get **safe, read-only SQL** (SQLite) via **Ollama** (
   - Replies with a paginated table
   - Buttons: **Export CSV**, **Plot Data** (choose X/Y, uploads chart)
 
+### Query examples:
+![Query step 1](examples/query1.png)
+![Query step 2](examples/query2.png)
+### Guard rails example:
+![Guardrails example](examples/guardrails.png)
+### Plotting xample:
+![Plot example](examples/plot.png)
+
 ---
 
 ## Quickstart
@@ -40,7 +48,7 @@ ollama pull qwen3:4b
 ### 4) Copy env and set tokens
 cp .env.example .env
 # then edit .env
-
+```
 .env keys
 
 SLACK_BOT_TOKEN — from “Install App” → Bot User OAuth Token (xoxb-...)
@@ -52,6 +60,7 @@ OLLAMA_MODEL — e.g. qwen3:4b
 SQLITE_PATH — ./chinook.db (or your DB)
 
 Optional: SCHEMA_YAML_PATH if you want to override auto-introspection
+```
 
 ### 5) Slack app setup (one-shot manifest)
 
@@ -88,6 +97,7 @@ Try: /dd top 5 customers by total spend
 Use the Export CSV / Plot Data buttons.
 
 ### Architecture
+```
 Slack Slash Commands  +  Interactivity (Buttons/Selects)
                 | (HTTP Webhooks)
                 v
@@ -99,6 +109,7 @@ Slack Slash Commands  +  Interactivity (Buttons/Selects)
                 |
                 v
           SQLite (read-only) → results → CSV / Plot → Slack files.upload
+```
 
 ### Security & Guardrails
 
