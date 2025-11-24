@@ -13,7 +13,7 @@ Ask questions in Slack → get **safe, read-only SQL** (SQLite) via **Ollama** (
   - Generates a **SQLite SELECT** using your schema
   - Executes against **Chinook** (or your DB)
   - Replies with a paginated table
-  - Buttons: **Export CSV**, **Plot Data** (choose X/Y, uploads chart)
+  - Buttons: **Export CSV**, **Plot Data** (choose X/Y, uploads chart), **🔍 Insights** (AI-powered analysis)
 
 ### Query examples:
 ![Query_step_3](examples/query3.gif)
@@ -96,7 +96,7 @@ ngrok http http://localhost:5000
 Invite the bot/app to your channel: /invite @DataDistillery
 
 Try: /dd top 5 customers by total spend
-Use the Export CSV / Plot Data buttons.
+Use the Export CSV / Plot Data / 🔍 Insights buttons.
 
 ### Architecture
 ```

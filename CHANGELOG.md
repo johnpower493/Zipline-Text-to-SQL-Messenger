@@ -1,5 +1,31 @@
 # Changelog
 
+## [1.1.0] - 2024-01-XX
+
+### Added
+- **🔍 Insights Feature**: New AI-powered data analysis capability
+  - Added "🔍 Insights" button to query results interface
+  - LLM generates contextual, data-driven insights based on query results
+  - Provides trend analysis, pattern detection, and business recommendations
+  - Appears as in-channel response with formatted insights and data context
+  - Includes row count footer and professional styling
+  - Handles edge cases (empty data, failed generation) gracefully
+
+### Enhanced
+- Updated help command to include Insights feature documentation
+- Enhanced LLM service with `generate_insights()` method
+- Improved user experience with emoji indicators and clear messaging
+- Added comprehensive error handling for insights generation workflow
+
+### Technical Details
+- New endpoint handler for `insights` action in Slack interactions
+- Background processing for insights to prevent timeout issues
+- Sample data limiting (first 10 rows) to optimize token usage
+- Schema context inclusion for better LLM understanding
+- Reuses existing SQL queries when possible for efficiency
+
+---
+
 All notable changes to the Data Distillery Slack SQL Cockpit will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),

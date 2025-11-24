@@ -128,6 +128,15 @@ def handle_slack_interactions():
                 ).start()
                 return jsonify({"text": "Preparing plot options..."}), 200
                 
+            elif action.action_id == 'insights':
+                # Handle insights generation
+                threading.Thread(
+                    target=_generate_insights,
+                    args=(action.value, response_url, payload),
+                    daemon=True
+                ).start()
+                return jsonify({"text": "🔍 Generating insights..."}), 200
+                
             elif action.action_id in ['next', 'previous']:
                 # Handle pagination
                 try:
@@ -189,6 +198,11 @@ def help_command():
                     {
                         "title": "Plot",
                         "value": "Use *Plot Data* → choose axes → *Generate Plot* (uploads image)",
+                        "short": False
+                    },
+                    {
+                        "title": "Insights",
+                        "value": "Use *🔍 Insights* button to get AI-powered data analysis and recommendations",
                         "short": False
                     },
                 ]
@@ -259,6 +273,7 @@ def _process_sql_query(query_request: QueryRequest):
         buttons = [
             create_slack_button("export_csv", "Export as CSV", query_request.question),
             create_slack_button("plot", "Bar Plot", query_request.question),
+            create_slack_button("insights", "🔍 Insights", query_request.question, "default"),
         ]
         
         # Add pagination buttons if needed
@@ -530,3 +545,70 @@ def _generate_plot(user_id: str, response_url: str, channel_id: str, query_text:
     except Exception as e:
         print(f"Error generating plot: {e}")
         requests.post(response_url, json={"text": f"Error generating plot: {str(e)}"})
+
+
+def _generate_insights(query_text: str, response_url: str, payload: Dict[str, Any]):
+    """Generate data insights in background thread."""
+    import requests
+    
+    try:
+        # Try to get SQL from original message, otherwise regenerate
+        sql_query = extract_sql_from_slack_message(payload)
+        if not sql_query:
+            sql_query = LLMService.get_sql_query(query_text, DATABASE_SCHEMA)
+        
+        if not sql_query:
+            requests.post(response_url, json={
+                "response_type": "ephemeral",
+                "text": "Could not generate SQL for insights analysis."
+            })
+            return
+        
+        # Execute query to get fresh data
+        result = DatabaseService.execute_query(sql_query)
+        if "error" in result:
+            requests.post(response_url, json={
+                "response_type": "ephemeral",
+                "text": f"SQL error during insights generation: {result['error']}"
+            })
+            return
+        
+        data = result["data"]
+        if not data:
+            requests.post(response_url, json={
+                "response_type": "ephemeral",
+                "text": "No data available for insights analysis."
+            })
+            return
+        
+        # Generate insights using LLM
+        insights = LLMService.generate_insights(query_text, sql_query, data, DATABASE_SCHEMA)
+        
+        if not insights:
+            requests.post(response_url, json={
+                "response_type": "ephemeral",
+                "text": "Could not generate insights. Please try again or rephrase your question."
+            })
+            return
+        
+        # Format the insights response
+        insights_message = {
+            "response_type": "in_channel",
+            "text": f"🔍 **Data Insights for:** _{query_text}_",
+            "attachments": [{
+                "color": "#36C5F0",
+                "text": insights,
+                "mrkdwn_in": ["text"],
+                "footer": f"Based on {len(data)} rows of data",
+                "footer_icon": "https://platform.slack-edge.com/img/default_application_icon.png"
+            }]
+        }
+        
+        requests.post(response_url, json=insights_message)
+        
+    except Exception as e:
+        print(f"Error generating insights: {e}")
+        requests.post(response_url, json={
+            "response_type": "ephemeral",
+            "text": f"Error generating insights: {str(e)}"
+        })

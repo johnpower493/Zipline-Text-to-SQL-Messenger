@@ -94,3 +94,76 @@ class LLMService:
         except Exception as e:
             print(f"Unexpected error in LLM service: {e}")
             return None
+    
+    @staticmethod
+    def generate_insights(question: str, sql_query: str, data_results: list, schema: str) -> Optional[str]:
+        """
+        Generate data-driven insights from query results.
+        
+        Args:
+            question: Original natural language question
+            sql_query: The SQL query that was executed
+            data_results: Query results data
+            schema: Database schema description
+            
+        Returns:
+            Generated insights text or None if generation failed
+        """
+        if not question or not sql_query or not data_results:
+            return None
+        
+        # Limit data for prompt (take first 10 rows to avoid token limits)
+        sample_data = data_results[:10] if len(data_results) > 10 else data_results
+        
+        # Format data for the prompt
+        data_summary = f"Total rows returned: {len(data_results)}\n"
+        if sample_data:
+            data_summary += f"Sample data (first {len(sample_data)} rows):\n"
+            for i, row in enumerate(sample_data, 1):
+                data_summary += f"Row {i}: {dict(row)}\n"
+        
+        insights_prompt = (
+            "You are a data analyst providing insights on query results. "
+            "Analyze the data and provide meaningful, actionable insights based on the original question and results. "
+            "Focus on trends, patterns, outliers, and business implications. "
+            "Keep your response concise but insightful (2-4 paragraphs).\n\n"
+            f"Original Question: {question}\n"
+            f"SQL Query: {sql_query}\n"
+            f"Database Schema Context:\n{schema[:500]}...\n\n"  # Limit schema for token efficiency
+            f"Query Results Summary:\n{data_summary}\n\n"
+            "Please provide data-driven insights:"
+        )
+        
+        try:
+            response = requests.post(
+                f"{config.OLLAMA_BASE_URL}/api/chat",
+                json={
+                    "model": config.OLLAMA_MODEL,
+                    "messages": [
+                        {"role": "system", "content": "You are an expert data analyst who provides clear, actionable insights from data."},
+                        {"role": "user", "content": insights_prompt},
+                    ],
+                    "stream": False
+                },
+                timeout=config.LLM_TIMEOUT
+            )
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            # Extract insights content
+            insights = (data.get("message") or {}).get("content", "") or ""
+            insights = insights.strip()
+            
+            if not insights:
+                print("LLM returned empty insights")
+                return None
+                
+            return insights
+            
+        except requests.RequestException as e:
+            print(f"Ollama API error for insights: {e}")
+            return None
+        except Exception as e:
+            print(f"Unexpected error in insights generation: {e}")
+            return None
