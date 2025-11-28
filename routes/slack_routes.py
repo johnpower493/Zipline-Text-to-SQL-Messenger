@@ -13,6 +13,7 @@ from services.database import DatabaseService
 from services.llm import LLMService
 from services.slack import SlackService
 from services.data_export import DataExportService, session_manager
+from services.true_agentic_analyst import true_agentic_analyst
 from utils.formatting import (
     format_data_as_table, 
     paginate_query_results, 
@@ -178,6 +179,52 @@ def handle_slack_interactions():
         return jsonify({"text": f"Error processing interaction: {str(e)}"}), 500
 
 
+@slack_bp.route('/askdb', methods=['POST'])
+def askdb_command():
+    """Handle the /askdb agentic assistant command."""
+    try:
+        # Validate request
+        if not request.form.get("token"):
+            return jsonify({"error": "Invalid request"}), 400
+        
+        question = request.form.get("text", "").strip()
+        user_id = request.form.get("user_id", "unknown")
+        response_url = request.form.get("response_url")
+        
+        if not question:
+            return jsonify({
+                "response_type": "ephemeral",
+                "text": "Please provide a business question to investigate.\n\n*Examples:*\n• `why did sales drop last month?`\n• `who are my top customers?`\n• `which products are most profitable?`\n• `what trends do I see in customer behavior?`"
+            })
+        
+        # Create request object for the investigation
+        investigation_request = QueryRequest(
+            question=question,
+            user_id=user_id,
+            channel_id=request.form.get("channel_id", ""),
+            response_url=response_url
+        )
+        
+        # Process investigation in background thread
+        threading.Thread(
+            target=_process_askdb_investigation,
+            args=(investigation_request,),
+            daemon=True
+        ).start()
+        
+        return jsonify({
+            "response_type": "in_channel",
+            "text": f"🤖 *Investigating:* {question}\n\n_Analyzing your data across multiple dimensions..._"
+        })
+        
+    except Exception as e:
+        print(f"Error in askdb handler: {e}")
+        return jsonify({
+            "response_type": "ephemeral", 
+            "text": "Sorry, I encountered an error processing your question."
+        }), 500
+
+
 @slack_bp.route('/help', methods=['POST'])
 def help_command():
     """Handle the /help slash command."""
@@ -186,14 +233,19 @@ def help_command():
         
         help_message = {
             "response_type": "in_channel",
-            "text": "How to use the SQLite + Ollama Assistant",
+            "text": "🤖 How to use CircularQuery - Your AI Data Assistant",
             "attachments": [{
                 "text": "Commands:",
                 "color": "#36a64f",
                 "fields": [
                     {
-                        "title": "Custom Query",
-                        "value": "`/dd [your question]` (e.g. 'top 10 customers by spend')",
+                        "title": "/dd Command",
+                        "value": "`/dd [your question]` → Get SQL + table results + actions (e.g. 'top 10 customers by spend')",
+                        "short": False
+                    },
+                    {
+                        "title": "/askdb Command (NEW!)",
+                        "value": "`/askdb [business question]` → AI investigates using multiple queries + comprehensive analysis (e.g. 'why did sales drop last month?')",
                         "short": False
                     },
                     {
@@ -434,6 +486,92 @@ def _export_csv(query_text: str, response_url: str, payload: Dict[str, Any]):
             "response_type": "ephemeral",
             "text": f"Error exporting CSV: {str(e)}"
         })
+
+
+def _process_askdb_investigation(investigation_request: QueryRequest):
+    """Process business question investigation in background thread."""
+    import requests
+    
+    try:
+        print(f"[DEBUG] Processing askdb investigation: '{investigation_request.question}' for user {investigation_request.user_id}")
+        print(f"[DEBUG] Response URL: {investigation_request.response_url}")
+        print(f"[DEBUG] LLM Backend: {config.LLM_BACKEND}")
+        
+        start_time = time.time()
+        
+        # Get database schema
+        schema = DatabaseService.get_database_schema()
+        print(f"[DEBUG] Schema length: {len(schema)} characters")
+        print(f"[DEBUG] Schema preview: {schema[:500]}...")
+        
+        # Test basic database connectivity
+        test_result = DatabaseService.execute_query("SELECT COUNT(*) AS test_count FROM drivers")
+        print(f"[DEBUG] Test query result: {test_result}")
+        
+        # Use TRUE agentic analyst to investigate the question
+        print(f"[DEBUG] Starting TRUE agentic investigation...")
+        analysis_result = true_agentic_analyst.investigate(investigation_request.question, schema)
+        
+        investigation_time = time.time() - start_time
+        print(f"[DEBUG] Investigation completed in {investigation_time:.2f}s")
+        
+        # Convert Markdown to Slack formatting
+        slack_formatted_result = _convert_markdown_to_slack(analysis_result)
+        
+        # Create response message
+        message = {
+            "response_type": "in_channel",
+            "text": slack_formatted_result
+        }
+        
+        print(f"[DEBUG] Analysis result preview: {analysis_result[:300]}...")
+        print(f"[DEBUG] Analysis result length: {len(analysis_result)} characters")
+        print(f"[DEBUG] Posting investigation result to: {investigation_request.response_url}")
+        response = requests.post(investigation_request.response_url, json=message, timeout=10)
+        print(f"[DEBUG] Investigation response status: {response.status_code}")
+        if response.status_code != 200:
+            print(f"[DEBUG] Response error: {response.text}")
+        
+    except Exception as e:
+        print(f"Error processing askdb investigation: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        try:
+            error_response = {
+                "response_type": "in_channel",
+                "text": f"❌ **Investigation Failed**\n\nI encountered an error while investigating: *{investigation_request.question}*\n\nError: {str(e)}\n\nPlease try rephrasing your question or contact support."
+            }
+            response = requests.post(investigation_request.response_url, json=error_response, timeout=10)
+            print(f"[DEBUG] Error response status: {response.status_code}")
+        except Exception as post_error:
+            print(f"Failed to post investigation error response: {post_error}")
+
+
+def _convert_markdown_to_slack(markdown_text: str) -> str:
+    """Convert Markdown formatting to Slack formatting."""
+    import re
+    
+    # Convert markdown to Slack formatting
+    slack_text = markdown_text
+    
+    # Convert **bold** to *bold*
+    slack_text = re.sub(r'\*\*(.*?)\*\*', r'*\1*', slack_text)
+    
+    # Convert bullet points • to Slack format
+    slack_text = re.sub(r'^•\s*', '• ', slack_text, flags=re.MULTILINE)
+    
+    # Convert section headers with emojis
+    slack_text = re.sub(r'^🤖 \*\*(.*?)\*\*', r'🤖 *\1*', slack_text, flags=re.MULTILINE)
+    slack_text = re.sub(r'^📊 \*\*(.*?)\*\*:', r'📊 *\1*:', slack_text, flags=re.MULTILINE)
+    slack_text = re.sub(r'^🔍 \*\*(.*?)\*\*:', r'🔍 *\1*:', slack_text, flags=re.MULTILINE)
+    slack_text = re.sub(r'^💡 \*\*(.*?)\*\*:', r'💡 *\1*:', slack_text, flags=re.MULTILINE)
+    slack_text = re.sub(r'^📈 \*\*(.*?)\*\*:', r'📈 *\1*:', slack_text, flags=re.MULTILINE)
+    
+    # Clean up any remaining ** formatting
+    slack_text = slack_text.replace('**', '*')
+    
+    return slack_text
 
 
 def _prepare_plot(query_text: str, response_url: str, payload: Dict[str, Any], plot_type: str = 'bar'):
