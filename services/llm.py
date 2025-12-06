@@ -153,7 +153,7 @@ class LLMService:
             return None
     
     @staticmethod
-    def generate_insights(question: str, sql_query: str, data_results: list, schema: str) -> Optional[str]:
+    def generate_insights(question: str, sql_query: str, data_results: list, schema: str, custom_prompt: str = None) -> Optional[str]:
         """
         Generate data-driven insights from query results.
         
@@ -179,23 +179,27 @@ class LLMService:
             for i, row in enumerate(sample_data, 1):
                 data_summary += f"Row {i}: {dict(row)}\n"
         
-        insights_prompt = (
-            "You are a data analyst providing insights on query results for a Slack message. "
-            "Analyze the data and provide meaningful, actionable insights based on the original question and results. "
-            "Focus on trends, patterns, outliers, and business implications. "
-            "Keep your response concise but insightful (2-4 paragraphs).\n\n"
-            "FORMATTING GUIDELINES:\n"
-            "- Use **bold** for key findings and important metrics\n"
-            "- Use bullet points (- or •) for lists\n"
-            "- Use clear section headers with **bold** formatting\n"
-            "- Keep sentences concise and scannable\n"
-            "- Avoid excessive nested formatting\n\n"
-            f"Original Question: {question}\n"
-            f"SQL Query: {sql_query}\n"
-            f"Database Schema Context:\n{schema[:500]}...\n\n"  # Limit schema for token efficiency
-            f"Query Results Summary:\n{data_summary}\n\n"
-            "Please provide data-driven insights with clear formatting:"
-        )
+        # Use custom prompt if provided, otherwise use default insights prompt
+        if custom_prompt:
+            insights_prompt = custom_prompt
+        else:
+            insights_prompt = (
+                "You are a data analyst providing insights on query results for a Slack message. "
+                "Analyze the data and provide meaningful, actionable insights based on the original question and results. "
+                "Focus on trends, patterns, outliers, and business implications. "
+                "Keep your response concise but insightful (2-4 paragraphs).\n\n"
+                "FORMATTING GUIDELINES:\n"
+                "- Use **bold** for key findings and important metrics\n"
+                "- Use bullet points (- or •) for lists\n"
+                "- Use clear section headers with **bold** formatting\n"
+                "- Keep sentences concise and scannable\n"
+                "- Avoid excessive nested formatting\n\n"
+                f"Original Question: {question}\n"
+                f"SQL Query: {sql_query}\n"
+                f"Database Schema Context:\n{schema[:500]}...\n\n"  # Limit schema for token efficiency
+                f"Query Results Summary:\n{data_summary}\n\n"
+                "Please provide data-driven insights with clear formatting:"
+            )
         
         # Choose backend based on configuration
         if config.LLM_BACKEND == "groq":
@@ -208,3 +212,44 @@ class LLMService:
             return None
             
         return insights
+    
+    @staticmethod
+    def generate_text_response(prompt: str) -> Optional[str]:
+        """
+        Generate a text response using the LLM for custom prompts.
+        
+        Args:
+            prompt: Custom prompt for text generation
+            
+        Returns:
+            Generated text or None if generation failed
+        """
+        if not prompt:
+            return None
+        
+        # Choose backend based on configuration
+        if config.LLM_BACKEND == "groq":
+            # Use the existing OpenAI-compatible Groq client (no tools)
+            try:
+                client = LLMService._get_groq_client()
+                if not client:
+                    print("Groq client not available")
+                    return None
+                
+                response = client.chat.completions.create(
+                    model=config.GROQ_MODEL,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.7,
+                    max_tokens=1500
+                    # Remove tool_choice to avoid the error
+                )
+                
+                content = response.choices[0].message.content
+                return content.strip() if content else None
+                
+            except Exception as e:
+                print(f"Groq text generation error: {e}")
+                return None
+        else:  # Default to Ollama
+            response = LLMService._call_ollama(prompt)
+            return response

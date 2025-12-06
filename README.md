@@ -17,7 +17,7 @@
 
 ## Demo (what it does)
 
-### **Two Powerful Commands:**
+### **Three Powerful Commands:**
 
 #### **`/dd` - Direct Data Queries**
 - `/dd top 10 tracks by revenue last year`
@@ -26,12 +26,19 @@
   - Replies with a paginated table
   - Buttons: **Export CSV**, **📊 Bar Plot**, **📈 Line Plot**, **🥧 Pie Chart** (choose X/Y, uploads chart), **🔍 Insights** (AI-powered analysis)
 
-#### **`/askdb` - Intelligent Business Analysis** ⭐ **NEW!**
+#### **`/askdb` - Intelligent Business Analysis**
 - `/askdb why did sales drop last month?`
   - **Smart routing**: Simple queries → fast processing, Complex questions → agentic analysis
   - **Iterative investigation**: Multi-step reasoning for complex questions
   - **Business insights**: Comprehensive analysis with specific recommendations
   - **Database agnostic**: Works with any schema (F1, e-commerce, HR, finance, etc.)
+
+#### **`/datastory` - AI Data Stories with Visualizations** ⭐ **NEW!**
+- `/datastory tell me about customer behavior trends`
+  - **Comprehensive analysis**: 1200-word structured reports with 5-part narrative
+  - **AI-generated visualizations**: Whiteboard-style charts and insights using Z-Image-Turbo
+  - **Professional presentation**: Clean, modern data story format perfect for stakeholders
+  - **End-to-end storytelling**: From raw data to actionable business narrative
 
 ### `/dd` Query Examples:
 ![Query_step_3](examples/query3.gif)
@@ -106,6 +113,12 @@ GROQ_MODEL — e.g. llama-3.1-8b-instant, openai/gpt-oss-20b
 **Database:**
 SQLITE_PATH — ./chinook.db (or your DB)
 
+**For AI Data Stories (optional, requires GPU):**
+The `/datastory` command uses Z-Image-Turbo for AI visualizations. For best performance:
+- NVIDIA GPU with CUDA support
+- At least 8GB VRAM recommended
+- Will gracefully degrade to text-only stories without GPU
+
 **Optional:**
 SCHEMA_YAML_PATH — override auto-introspection
 ```
@@ -131,6 +144,8 @@ In each Slash Command edit page, set the Request URL to your public URL paths:
 
 /askdb → https://<your-ngrok-domain>/slack/askdb
 
+/datastory → https://<your-ngrok-domain>/slack/datastory
+
 /help → https://<your-ngrok-domain>/slack/help
 
 If you’re local, run ngrok (or Cloudflare tunnel):
@@ -152,30 +167,36 @@ Invite the bot/app to your channel: /invite @CircularQuery
 - `/askdb why are sales trending down?`
 - `/askdb which products are most profitable?`
 
+**Try Data Stories:**
+- `/datastory what can you tell me about customer behavior?`
+- `/datastory show me revenue trends and insights`
+- `/datastory tell me about product performance patterns`
+
 ### Architecture
 ```
-Slack Slash Commands (/dd, /askdb, /help)  +  Interactivity (Buttons/Selects)
+Slack Slash Commands (/dd, /askdb, /datastory, /help)  +  Interactivity (Buttons/Selects)
                 | (HTTP Webhooks)
                 v
            Flask Server + Smart Query Router
-                |                     |
-        Simple Questions      Complex Questions
-                |                     |
-                v                     v
-        /dd Processing        True Agentic System
-    (Fast: 1 LLM call)      (Thorough: Multi-iteration)
-                |                     |
-                v                     v
-           Guardrails (SELECT-only, LIMIT, timeouts)
-                |                     |
-                v                     v
+                |                     |                     |
+        Simple Questions      Complex Questions       Data Stories
+                |                     |                     |
+                v                     v                     v
+        /dd Processing        True Agentic System    AI Story Generator
+    (Fast: 1 LLM call)      (Thorough: Multi-iteration)  (Comprehensive Analysis)
+                |                     |                     |
+                v                     v                     v
+           Guardrails (SELECT-only, LIMIT, timeouts)      |
+                |                     |                     |
+                v                     v                     v
     Ollama (Local) OR Groq (Cloud)  ——>  SQL (SQLite dialect)
-                |                     |
-                v                     v
+                |                     |                     |
+                v                     v                     v
           SQLite (read-only) → results → CSV / Plot → Slack files.upload
-                                |
-                                v
-                        Business Intelligence Synthesis
+                                |                     |
+                                v                     v
+                Business Intelligence Synthesis    Z-Image-Turbo AI
+                                                 (Whiteboard Visualizations)
 ```
 
 ### Security & Guardrails

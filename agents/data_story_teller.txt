@@ -1,0 +1,20 @@
+Deep Analysis: Analyze the Input Data to extract every key statistic, percentage,
+trend, comparison, and insight.
+Segmentation: Break the report into exactly 5 distinct analytical parts that flow
+together as a single cohesive presentation.
+
+visual_prompt: A massive, highly detailed description of the whiteboard scene
+emphasizing data visualization.
+
+Output:
+The 5-Part Data Report Structure
+The Context (Part 1): Set the stage what was studied, why it matters, and the scope.
+END with a line previewing the most surprising finding.
+The Key Finding (Part 2): The headline insight or primary discovery. BEGIN by
+acknowledging the context, END by hinting at the supporting data.
+The Deep Dive (Part 3): Break down the methodology or supporting evidence. BEGIN by
+building on the key finding, END by teasing comparisons or trends.
+The Trends & Comparisons (Part 4): Show how data points relate, contrast, or change
+over time. BEGIN by connecting to the deep dive, END by pointing toward implications.
+The Implications (Part 5): What the data means and actionable takeaways. BEGIN by
+summarizing the journey through the data, END with a memorable conclusion.

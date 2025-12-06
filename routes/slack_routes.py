@@ -15,6 +15,7 @@ from services.slack import SlackService
 from services.data_export import DataExportService, session_manager
 from services.true_agentic_analyst import true_agentic_analyst
 from services.query_router import query_router
+from services.data_story_service import data_story_service
 from utils.formatting import (
     format_data_as_table, 
     paginate_query_results, 
@@ -226,6 +227,52 @@ def askdb_command():
         }), 500
 
 
+@slack_bp.route('/datastory', methods=['POST'])
+def datastory_command():
+    """Handle the /datastory command for AI-generated data stories."""
+    try:
+        # Validate request
+        if not request.form.get("token"):
+            return jsonify({"error": "Invalid request"}), 400
+        
+        question = request.form.get("text", "").strip()
+        user_id = request.form.get("user_id", "unknown")
+        response_url = request.form.get("response_url")
+        
+        if not question:
+            return jsonify({
+                "response_type": "ephemeral",
+                "text": "Please provide a business question for your data story.\n\n*Examples:*\n• `what can you tell me about customer behavior?`\n• `show me revenue trends and insights`\n• `analyze product performance patterns`\n• `tell me a story about sales data`"
+            })
+        
+        # Create request object for the data story
+        story_request = QueryRequest(
+            question=question,
+            user_id=user_id,
+            channel_id=request.form.get("channel_id", ""),
+            response_url=response_url
+        )
+        
+        # Process data story in background thread
+        threading.Thread(
+            target=_process_datastory_creation,
+            args=(story_request,),
+            daemon=True
+        ).start()
+        
+        return jsonify({
+            "response_type": "in_channel",
+            "text": f"📖 *Creating Data Story:* {question}\n\n_Generating comprehensive analysis with AI visualization..._\n\n⏳ This may take 30-60 seconds for the complete story generation."
+        })
+        
+    except Exception as e:
+        print(f"Error in datastory handler: {e}")
+        return jsonify({
+            "response_type": "ephemeral", 
+            "text": "Sorry, I encountered an error processing your data story request."
+        }), 500
+
+
 @slack_bp.route('/help', methods=['POST'])
 def help_command():
     """Handle the /help slash command."""
@@ -245,8 +292,13 @@ def help_command():
                         "short": False
                     },
                     {
-                        "title": "/askdb Command (NEW!)",
+                        "title": "/askdb Command",
                         "value": "`/askdb [business question]` → AI investigates using multiple queries + comprehensive analysis (e.g. 'why did sales drop last month?')",
+                        "short": False
+                    },
+                    {
+                        "title": "/datastory Command (NEW!)",
+                        "value": "`/datastory [question]` → Creates comprehensive data story with AI-generated whiteboard visualization + detailed analysis (e.g. 'tell me about customer trends')",
                         "short": False
                     },
                     {
@@ -606,7 +658,12 @@ def _format_simple_askdb_response(question: str, sql_query: str, data: list) -> 
     if row_count == 1 and len(first_row) == 1:
         # Single value result (count, sum, etc.)
         key, value = list(first_row.items())[0]
-        response = f"🤖 *{question.title()}*\n\n📊 *Answer:* {value:,} {key.replace('_', ' ')}"
+        # Format value safely - only use comma formatting for numbers
+        if isinstance(value, (int, float)):
+            formatted_value = f"{value:,}"
+        else:
+            formatted_value = str(value)
+        response = f"🤖 *{question.title()}*\n\n📊 *Answer:* {formatted_value} {key.replace('_', ' ')}"
         
     elif "top" in question.lower() or "most" in question.lower():
         # Ranking results
@@ -617,7 +674,12 @@ def _format_simple_askdb_response(question: str, sql_query: str, data: list) -> 
                 # Assume first column is name, second is metric
                 name = list(row.values())[0]
                 metric = list(row.values())[1]
-                response += f"• {i}. {name}: {metric:,}\n"
+                # Format metric safely - only use comma formatting for numbers
+                if isinstance(metric, (int, float)):
+                    formatted_metric = f"{metric:,}"
+                else:
+                    formatted_metric = str(metric)
+                response += f"• {i}. {name}: {formatted_metric}\n"
             else:
                 response += f"• {i}. {list(row.values())[0]}\n"
                 
@@ -955,6 +1017,131 @@ def _generate_insights(query_text: str, response_url: str, payload: Dict[str, An
             "response_type": "ephemeral",
             "text": f"Error generating insights: {str(e)}"
         })
+
+
+def _process_datastory_creation(story_request: QueryRequest):
+    """Process data story creation in background thread."""
+    import requests
+    
+    try:
+        print(f"[DEBUG] Processing datastory: '{story_request.question}' for user {story_request.user_id}")
+        print(f"[DEBUG] Response URL: {story_request.response_url}")
+        
+        start_time = time.time()
+        
+        # Get database schema
+        schema = DatabaseService.get_database_schema()
+        print(f"[DEBUG] Schema length: {len(schema)} characters")
+        
+        # Create comprehensive data story
+        story_result = data_story_service.create_data_story(story_request.question, schema)
+        
+        if "error" in story_result:
+            error_response = {
+                "response_type": "in_channel",
+                "text": f"❌ **Data Story Creation Failed**\n\nI encountered an error while creating your data story: *{story_request.question}*\n\nError: {story_result['error']}\n\nPlease try rephrasing your question or use `/dd` for direct queries."
+            }
+            response = requests.post(story_request.response_url, json=error_response, timeout=10)
+            print(f"[DEBUG] Error response status: {response.status_code}")
+            return
+        
+        creation_time = time.time() - start_time
+        print(f"[DEBUG] Data story creation completed in {creation_time:.2f}s")
+        
+        # Format the story for Slack
+        formatted_story = _format_datastory_for_slack(story_result)
+        
+        # Create initial response with story text
+        story_message = {
+            "response_type": "in_channel",
+            "text": formatted_story
+        }
+        
+        print(f"[DEBUG] Posting story text to: {story_request.response_url}")
+        response = requests.post(story_request.response_url, json=story_message, timeout=10)
+        print(f"[DEBUG] Story text response status: {response.status_code}")
+        
+        # Upload visualization if generated
+        if story_result.get("image_path") and story_request.channel_id:
+            _upload_datastory_visualization(story_result, story_request)
+            
+    except Exception as e:
+        print(f"Error processing datastory: {e}")
+        import traceback
+        traceback.print_exc()
+        
+        try:
+            error_response = {
+                "response_type": "in_channel",
+                "text": f"❌ **Data Story Creation Failed**\n\nI encountered an unexpected error while creating your data story: *{story_request.question}*\n\nError: {str(e)}\n\nPlease try again or contact support."
+            }
+            response = requests.post(story_request.response_url, json=error_response, timeout=10)
+            print(f"[DEBUG] Exception response status: {response.status_code}")
+        except Exception as post_error:
+            print(f"Failed to post datastory error response: {post_error}")
+
+
+def _format_datastory_for_slack(story_result: Dict[str, Any]) -> str:
+    """Format data story result for Slack presentation."""
+    
+    # Extract components
+    story_text = story_result.get("story_text", "")
+    sql_query = story_result.get("sql_query", "")
+    data_rows = story_result.get("data_rows", 0)
+    has_image = bool(story_result.get("image_path"))
+    
+    # Convert Markdown to Slack formatting
+    slack_formatted_story = _convert_markdown_to_slack(story_text)
+    
+    # Create comprehensive response
+    formatted_response = f"📖 **Data Story Complete**\n\n"
+    formatted_response += slack_formatted_story
+    
+    # Add clean footer
+    formatted_response += f"\n\n---\n"
+    formatted_response += f"📊 *{data_rows:,} data points analyzed*"
+    if has_image:
+        formatted_response += f" • 🎨 *Infographic generating...*"
+    # Skip the SQL query in footer to keep it clean
+    
+    return formatted_response
+
+
+def _upload_datastory_visualization(story_result: Dict[str, Any], story_request: QueryRequest):
+    """Upload the AI-generated visualization to Slack."""
+    import time
+    
+    try:
+        image_path = story_result.get("image_path")
+        if not image_path or not os.path.exists(image_path):
+            print("[DEBUG] No image path or file not found for upload")
+            return
+        
+        print(f"[DEBUG] Uploading datastory visualization: {image_path}")
+        
+        with open(image_path, "rb") as f:
+            success, response = SlackService.upload_file(
+                story_request.channel_id,
+                f.read(),
+                filename=f"datastory_{int(time.time())}.png",
+                title="AI Data Story Visualization",
+                initial_comment=f"🎨 **AI-Generated Whiteboard Visualization**\nData story for: _{story_request.question}_"
+            )
+        
+        if success:
+            print("[DEBUG] Datastory visualization uploaded successfully")
+        else:
+            print(f"[DEBUG] Failed to upload datastory visualization: {response}")
+            
+        # Clean up the temporary image file
+        try:
+            os.remove(image_path)
+            print(f"[DEBUG] Cleaned up temporary image: {image_path}")
+        except Exception as cleanup_error:
+            print(f"[DEBUG] Failed to cleanup image: {cleanup_error}")
+            
+    except Exception as e:
+        print(f"Error uploading datastory visualization: {e}")
 
 
 def _format_insights_for_slack(insights: str) -> str:

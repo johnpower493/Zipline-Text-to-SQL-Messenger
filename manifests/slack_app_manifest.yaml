@@ -18,6 +18,11 @@ features:
       description: Ask business questions - AI investigates using multiple queries
       usage_hint: "why did sales drop last month?"
       should_escape: false
+    - command: /datastory
+      url: https://YOUR-NGROK-DOMAIN/slack/datastory
+      description: Create comprehensive data stories with AI-generated visualizations
+      usage_hint: "tell me about customer behavior trends"
+      should_escape: false
     - command: /help
       url: https://YOUR-NGROK-DOMAIN/slack/help
       description: Help for DBChat

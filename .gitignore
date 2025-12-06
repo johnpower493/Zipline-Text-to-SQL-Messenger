@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 exports/
 archive/
+archive_docs/
 *.sqlite
 *.db
 *.exe

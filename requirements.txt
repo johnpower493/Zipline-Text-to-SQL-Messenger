@@ -5,5 +5,11 @@ matplotlib>=3.7.0
 seaborn>=0.12.0
 python-dotenv>=1.0.0
 pyyaml>=6.0.0
-sqlite3
 openai>=1.0.0
+pandas
+python-dotenv
+torch>=2.0.0
+diffusers>=0.24.0
+transformers>=4.35.0
+accelerate>=0.24.0
+safetensors>=0.4.0
