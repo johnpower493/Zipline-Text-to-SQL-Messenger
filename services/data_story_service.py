@@ -33,11 +33,12 @@ class DataStoryService:
             
             # First try the specific Z-Image pipeline
             try:
-                from diffusers import AutoPipelineForText2Image
-                self.pipeline = AutoPipelineForText2Image.from_pretrained(
+                from diffusers import ZImagePipeline
+                
+                self.pipeline = ZImagePipeline.from_pretrained(
                     "Tongyi-MAI/Z-Image-Turbo",
                     torch_dtype=torch.bfloat16,
-                    trust_remote_code=True
+                    low_cpu_mem_usage=False,  # Match original exactly
                 )
                 print("[DATASTORY] Loaded Z-Image-Turbo with AutoPipeline")
             except Exception as e1:
@@ -182,7 +183,7 @@ Focus on extracting insights, patterns, and actionable recommendations from this
         
         # Create focused story prompt that emphasizes natural flow
         story_prompt = f"""
-You are a data storyteller creating a compelling business narrative. Transform this F1 analysis into a natural, engaging story that flows smoothly without rigid section headers.
+You are a data storyteller creating a compelling business narrative. Transform this analysis into a natural, engaging story that flows smoothly without rigid section headers.
 
 ANALYSIS TO TRANSFORM:
 Question: {question}
@@ -208,65 +209,82 @@ Write a compelling data story that someone would want to read and share with col
         return story_structure or self._create_default_natural_story(question, key_insights)
     
     def _generate_visual_prompt(self, question: str, data: List[Dict], story_structure: str) -> str:
-        """Generate detailed visual prompt for AI image generation."""
+        """Generate whiteboard-style visual prompt using LLM meta-prompt approach."""
         
-        # Generate compelling infographic title using LLM
-        title_prompt = f"""
-Based on this data analysis, create a compelling infographic title that captures the key insight:
+        # Step 1: Extract data into JSON format  
+        data_extraction_prompt = f"""
+Extract the key data insights from this analysis into clean JSON format for visualization:
 
-Original Question: {question}
-Data Summary: {self._extract_infographic_stats(data, story_structure)[:300]}
-Story Excerpt: {story_structure[:400]}...
+QUESTION: {question}
+DATA: {data}
+STORY: {story_structure[:500]}...
 
-Generate a punchy, professional infographic title (4-8 words) that would make someone want to look at the data visualization. Focus on the most interesting finding or pattern.
+Create a JSON object with these exact fields:
+{{
+  "title": "Short compelling title",
+  "winner": "Name of top performer",
+  "winner_value": "Numerical value",
+  "metric_name": "What is being measured",
+  "top_3": [
+    {{"name": "First place name", "value": "number"}},
+    {{"name": "Second place name", "value": "number"}}, 
+    {{"name": "Third place name", "value": "number"}}
+  ],
+  "key_insight": "One surprising finding in 8 words or less",
+  "total_analyzed": "Number of items analyzed"
+}}
 
-Examples of good infographic titles:
-- "Verstappen's 2024 Dominance: By The Numbers"
-- "F1 2024: The Championship That Wasn't Close"
-- "Season Statistics: How Verstappen Won It All"
-
-Generate title only (no quotes or explanations):
+Extract ONLY the actual data from the analysis. Return valid JSON only:
 """
         
-        print("[DATASTORY] Generating dynamic infographic title...")
-        dynamic_title = LLMService.generate_text_response(title_prompt)
-        infographic_title = dynamic_title.strip().strip('"\'') if dynamic_title else question.title()
-        print(f"[DATASTORY] Generated title: {infographic_title}")
+        print("[DATASTORY] Extracting structured data for visualization...")
+        json_response = LLMService.generate_text_response(data_extraction_prompt)
         
-        # Extract specific statistics and insights for infographic
-        stats_summary = self._extract_infographic_stats(data, story_structure)
+        # Parse JSON and create data summary
+        try:
+            import json
+            data_json = json.loads(json_response) if json_response else {}
+            print(f"[DATASTORY] Extracted data JSON: {data_json}")
+        except Exception as e:
+            print(f"[DATASTORY] JSON parsing failed, using fallback data: {e}")
+            data_json = self._extract_fallback_json(data, question.title())
         
-        # Create data-driven infographic prompt
-        visual_prompt = f"""
-Create a professional data infographic on a clean white background titled '{infographic_title}'.
-
-INFOGRAPHIC CONTENT TO INCLUDE:
-{stats_summary}
-
-DESIGN REQUIREMENTS:
-- Modern infographic style with clean typography
-- Professional color scheme: deep blue (#2E86C1), orange (#F39C12), gray (#34495E)
-- Clear data visualization with specific numbers prominently displayed
-- Icon-driven sections with statistical callouts
-- Organized layout with visual hierarchy
-
-LAYOUT STRUCTURE:
-1. TITLE BANNER: '{infographic_title}' at top
-2. KEY STATISTICS PANEL: Large numbers with labels (top performers, totals, percentages)
-3. MAIN VISUAL: Bar chart/ranking showing top items with specific values
-4. INSIGHT CALLOUTS: 2-3 circular bubbles highlighting surprising findings
-5. BOTTOM SUMMARY: Key takeaways in bullet format with icons
-
-SPECIFIC VISUAL ELEMENTS:
-- Use bar charts for rankings/comparisons
-- Include percentage badges and numerical callouts
-- Add trend arrows (↗️↘️) next to key metrics  
-- Use icons for different categories/types
-- Highlight top performer with special color/badge
-- Include small "vs" comparison boxes
-
-Make this look like a modern business intelligence dashboard infographic that clearly presents the data insights at a glance.
+        # Step 2: Format data for the meta-prompt
+        winner = data_json.get('winner', 'Top Performer')
+        winner_value = data_json.get('winner_value', 'N/A')
+        metric = data_json.get('metric_name', 'Performance')
+        top_3 = data_json.get('top_3', [])
+        title = data_json.get('title', question.title())
+        insight = data_json.get('key_insight', 'Analysis complete')
+        
+        data_summary = f"""
+Title: {title}
+Winner: {winner} ({winner_value} {metric})
+Rankings: {', '.join([f"{item.get('name', 'N/A')}: {item.get('value', 'N/A')}" for item in top_3[:3]])}
+Key Insight: {insight}
+Total Analyzed: {data_json.get('total_analyzed', len(data))} items
 """
+        
+        # Step 3: Use LLM to generate the whiteboard visual prompt
+        meta_prompt = f"""
+Using the data below, generate a short text-to-image prompt that describes a hand-drawn whiteboard-style visual showing the key values, comparisons, and insights. Include simple bars or arrows, brief handwritten notes, and 2-3 key takeaways. Keep it clean, minimal, and business-whiteboard in style. End with: white background, marker sketch.
+
+Data:
+{data_summary.strip()}
+"""
+        
+        print("[DATASTORY] Generating whiteboard visual prompt from data...")
+        generated_prompt = LLMService.generate_text_response(meta_prompt)
+        
+        if generated_prompt and len(generated_prompt) > 50:
+            visual_prompt = generated_prompt.strip()
+            print(f"[DATASTORY] Generated visual prompt: {visual_prompt[:150]}...")
+        else:
+            # Fallback prompt if LLM generation fails
+            visual_prompt = f"""
+Hand-drawn whiteboard showing "{title}". Simple bar chart with {winner} at {winner_value} {metric} (longest bar), followed by smaller bars for runners-up. Arrow pointing to winner with "TOP!" note. Key stats in corners: "{insight}". Clean business whiteboard style, handwritten labels, simple drawings. White background, marker sketch.
+"""
+            print("[DATASTORY] Using fallback visual prompt")
         
         return visual_prompt
     
