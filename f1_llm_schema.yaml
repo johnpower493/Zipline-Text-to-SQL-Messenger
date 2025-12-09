@@ -1,0 +1,507 @@
+overview:
+  domain: "Formula 1 race history and timing"
+  main_entities:
+    - name: seasons
+      description: One row per F1 season (year).
+    - name: races
+      description: One row per race / Grand Prix event.
+    - name: circuits
+      description: Tracks where races are held.
+    - name: drivers
+      description: One row per driver.
+    - name: constructors
+      description: One row per team/constructor.
+    - name: results
+      description: Driver results in each race (finishing position, points).
+    - name: sprint_results
+      description: Driver results in sprint races.
+    - name: driver_standings
+      description: Driver championship standings by race.
+    - name: constructor_standings
+      description: Constructor championship standings by race.
+    - name: lap_times
+      description: Lap-by-lap timing per driver and race.
+    - name: pit_stops
+      description: Pit stop events per driver and race.
+    - name: qualifying
+      description: Qualifying session results per race.
+    - name: constructor_results
+      description: Constructor results per race.
+    - name: status
+      description: Text description of finish / retirement status.
+
+tables:
+
+  seasons:
+    summary: One row per F1 season.
+    columns:
+      - name: year
+        type: integer
+        role: primary_key
+        description: Season year (e.g. 2024).
+      - name: url
+        type: text
+        description: URL with more info about the season.
+    relationships:
+      - "Join seasons.year to races.year to get races in a season."
+
+  races:
+    summary: One row per race / Grand Prix event.
+    columns:
+      - name: raceId
+        type: integer
+        role: primary_key
+        description: Unique ID for the race.
+      - name: year
+        type: integer
+        description: Season year of this race.
+      - name: round
+        type: integer
+        description: Round number within the season.
+      - name: circuitId
+        type: integer
+        description: ID of the circuit where the race is held.
+      - name: name
+        type: text
+        description: Official race name (e.g. 'Australian Grand Prix').
+      - name: date
+        type: text
+        description: Race date (YYYY-MM-DD).
+      - name: time
+        type: text
+        description: Race start time (HH:MM:SS) or null.
+      - name: url
+        type: text
+        description: URL with more info about the race.
+      - name: fp1_date
+        type: text
+        description: Date of first practice session.
+      - name: fp1_time
+        type: text
+        description: Time of first practice session.
+      - name: fp2_date
+        type: text
+        description: Date of second practice session.
+      - name: fp2_time
+        type: text
+        description: Time of second practice session.
+      - name: fp3_date
+        type: text
+        description: Date of third practice session.
+      - name: fp3_time
+        type: text
+        description: Time of third practice session.
+      - name: quali_date
+        type: text
+        description: Date of qualifying session.
+      - name: quali_time
+        type: text
+        description: Time of qualifying session.
+      - name: sprint_date
+        type: text
+        description: Date of sprint race (if any).
+      - name: sprint_time
+        type: text
+        description: Time of sprint race (if any).
+    relationships:
+      - "races.circuitId → circuits.circuitId"
+      - "races.year → seasons.year"
+      - "results.raceId, sprint_results.raceId, lap_times.raceId, pit_stops.raceId all join to races.raceId"
+      - "driver_standings.raceId and constructor_standings.raceId join to races.raceId"
+      - "constructor_results.raceId joins to races.raceId"
+
+  circuits:
+    summary: One row per circuit / track.
+    columns:
+      - name: circuitId
+        type: integer
+        role: primary_key
+        description: Unique ID for the circuit.
+      - name: circuitRef
+        type: text
+        description: Short reference code for the circuit.
+      - name: name
+        type: text
+        description: Circuit name (e.g. 'Albert Park Grand Prix Circuit').
+      - name: location
+        type: text
+        description: City or locality of the circuit.
+      - name: country
+        type: text
+        description: Country of the circuit.
+      - name: lat
+        type: real
+        description: Latitude of the circuit.
+      - name: lng
+        type: real
+        description: Longitude of the circuit.
+      - name: alt
+        type: integer
+        description: Altitude of the circuit in meters, if known.
+      - name: url
+        type: text
+        description: URL with more info about the circuit.
+    relationships:
+      - "races.circuitId → circuits.circuitId to get track details."
+
+  drivers:
+    summary: One row per driver.
+    columns:
+      - name: driverId
+        type: integer
+        role: primary_key
+        description: Unique driver ID.
+      - name: driverRef
+        type: text
+        description: Short reference code for the driver.
+      - name: number
+        type: text
+        description: Car number used by the driver.
+      - name: code
+        type: text
+        description: 3-letter driver code (e.g. 'HAM').
+      - name: forename
+        type: text
+        description: Driver first name.
+      - name: surname
+        type: text
+        description: Driver last name.
+      - name: dob
+        type: text
+        description: Date of birth (YYYY-MM-DD).
+      - name: nationality
+        type: text
+        description: Driver nationality.
+      - name: url
+        type: text
+        description: URL with more info about the driver.
+    relationships:
+      - "results.driverId, sprint_results.driverId, lap_times.driverId, pit_stops.driverId, driver_standings.driverId, qualifying.driverId all join to drivers.driverId."
+
+  constructors:
+    summary: One row per constructor / team.
+    columns:
+      - name: constructorId
+        type: integer
+        role: primary_key
+        description: Unique constructor (team) ID.
+      - name: constructorRef
+        type: text
+        description: Short reference code for the constructor.
+      - name: name
+        type: text
+        description: Team name (e.g. 'Mercedes').
+      - name: nationality
+        type: text
+        description: Team nationality.
+      - name: url
+        type: text
+        description: URL with more info about the constructor.
+    relationships:
+      - "results.constructorId, sprint_results.constructorId, constructor_results.constructorId, constructor_standings.constructorId, qualifying.constructorId all join to constructors.constructorId."
+
+  results:
+    summary: One row per driver per race (main race result).
+    columns:
+      - name: resultId
+        type: integer
+        role: primary_key
+        description: Unique ID for this race result row.
+      - name: raceId
+        type: integer
+        description: Race ID this result belongs to.
+      - name: driverId
+        type: integer
+        description: Driver ID for this result.
+      - name: constructorId
+        type: integer
+        description: Constructor/team ID for this result.
+      - name: number
+        type: text
+        description: Car number used in this race.
+      - name: grid
+        type: integer
+        description: Grid position the driver started from.
+      - name: position
+        type: text
+        description: Finishing position (can be numeric or null).
+      - name: positionText
+        type: text
+        description: Text version of finishing position (e.g. 'R' for retired).
+      - name: positionOrder
+        type: integer
+        description: Ordered numeric finishing position.
+      - name: points
+        type: real
+        description: Points scored by this driver in this race.
+      - name: laps
+        type: integer
+        description: Number of laps completed.
+      - name: time
+        type: text
+        description: Race time string (e.g. '+5.123s' or full time).
+      - name: milliseconds
+        type: text
+        description: Race time in milliseconds, if available.
+      - name: fastestLap
+        type: text
+        description: Lap number of driver’s fastest lap.
+      - name: rank
+        type: text
+        description: Rank of the fastest lap among all drivers.
+      - name: fastestLapTime
+        type: text
+        description: Time of the driver’s fastest lap.
+      - name: fastestLapSpeed
+        type: text
+        description: Speed of the driver’s fastest lap.
+      - name: statusId
+        type: integer
+        description: ID describing how the race ended for this driver.
+    relationships:
+      - "results.raceId → races.raceId"
+      - "results.driverId → drivers.driverId"
+      - "results.constructorId → constructors.constructorId"
+      - "results.statusId → status.statusId"
+
+  sprint_results:
+    summary: One row per driver per race for sprint races.
+    columns:
+      - name: resultId
+        type: integer
+        role: primary_key
+        description: Unique ID for this sprint result row.
+      - name: raceId
+        type: integer
+        description: Race ID this sprint result belongs to.
+      - name: driverId
+        type: integer
+        description: Driver ID.
+      - name: constructorId
+        type: integer
+        description: Constructor/team ID.
+      - name: number
+        type: integer
+        description: Car number used in the sprint.
+      - name: grid
+        type: integer
+        description: Grid position for the sprint.
+      - name: position
+        type: text
+        description: Finishing position in the sprint.
+      - name: positionText
+        type: text
+        description: Text version of finishing position.
+      - name: positionOrder
+        type: integer
+        description: Ordered numeric finishing position.
+      - name: points
+        type: integer
+        description: Points scored in the sprint.
+      - name: laps
+        type: integer
+        description: Laps completed in the sprint.
+      - name: time
+        type: text
+        description: Sprint time string.
+      - name: milliseconds
+        type: text
+        description: Sprint time in milliseconds, if available.
+      - name: fastestLap
+        type: text
+        description: Lap number of fastest lap in the sprint.
+      - name: fastestLapTime
+        type: text
+        description: Time of fastest lap in the sprint.
+      - name: statusId
+        type: integer
+        description: Status ID for how the sprint ended.
+    relationships:
+      - "sprint_results.raceId → races.raceId"
+      - "sprint_results.driverId → drivers.driverId"
+      - "sprint_results.constructorId → constructors.constructorId"
+      - "sprint_results.statusId → status.statusId"
+
+  driver_standings:
+    summary: Driver championship standings after each race.
+    columns:
+      - name: driverStandingsId
+        type: integer
+        role: primary_key
+        description: Unique ID for this driver standings row.
+      - name: raceId
+        type: integer
+        description: Race after which the standings apply.
+      - name: driverId
+        type: integer
+        description: Driver ID.
+      - name: points
+        type: real
+        description: Total championship points after this race.
+      - name: position
+        type: integer
+        description: Championship position after this race.
+      - name: positionText
+        type: text
+        description: Text representation of position.
+      - name: wins
+        type: integer
+        description: Number of wins so far in the season.
+    relationships:
+      - "driver_standings.raceId → races.raceId"
+      - "driver_standings.driverId → drivers.driverId"
+
+  constructor_standings:
+    summary: Constructor championship standings after each race.
+    columns:
+      - name: constructorStandingsId
+        type: integer
+        role: primary_key
+        description: Unique ID for this constructor standings row.
+      - name: raceId
+        type: integer
+        description: Race after which the standings apply.
+      - name: constructorId
+        type: integer
+        description: Constructor/team ID.
+      - name: points
+        type: real
+        description: Total championship points after this race.
+      - name: position
+        type: integer
+        description: Championship position for the constructor.
+      - name: positionText
+        type: text
+        description: Text representation of position.
+      - name: wins
+        type: integer
+        description: Number of wins so far in the season.
+    relationships:
+      - "constructor_standings.raceId → races.raceId"
+      - "constructor_standings.constructorId → constructors.constructorId"
+
+  constructor_results:
+    summary: Constructor results per race (aggregated).
+    columns:
+      - name: constructorResultsId
+        type: integer
+        role: primary_key
+        description: Unique ID for this constructor result row.
+      - name: raceId
+        type: integer
+        description: Race ID.
+      - name: constructorId
+        type: integer
+        description: Constructor/team ID.
+      - name: points
+        type: real
+        description: Points scored by the constructor in this race.
+      - name: status
+        type: text
+        description: Text description of the constructor’s result status.
+    relationships:
+      - "constructor_results.raceId → races.raceId"
+      - "constructor_results.constructorId → constructors.constructorId"
+
+  lap_times:
+    summary: One row per lap per driver per race.
+    columns:
+      - name: raceId
+        type: integer
+        description: Race ID.
+      - name: driverId
+        type: integer
+        description: Driver ID.
+      - name: lap
+        type: integer
+        description: Lap number.
+      - name: position
+        type: integer
+        description: Driver’s position at the end of this lap.
+      - name: time
+        type: text
+        description: Lap time string (e.g. '1:23.456').
+      - name: milliseconds
+        type: integer
+        description: Lap time in milliseconds.
+    relationships:
+      - "lap_times.raceId → races.raceId"
+      - "lap_times.driverId → drivers.driverId"
+
+  pit_stops:
+    summary: Pit stop events for each driver in each race.
+    columns:
+      - name: raceId
+        type: integer
+        description: Race ID.
+      - name: driverId
+        type: integer
+        description: Driver ID.
+      - name: stop
+        type: integer
+        description: Pit stop sequence number for that driver in the race.
+      - name: lap
+        type: integer
+        description: Lap on which the pit stop occurred.
+      - name: time
+        type: text
+        description: Time of day when the pit stop occurred.
+      - name: duration
+        type: text
+        description: Duration of the pit stop.
+      - name: milliseconds
+        type: integer
+        description: Pit stop duration in milliseconds.
+    relationships:
+      - "pit_stops.raceId → races.raceId"
+      - "pit_stops.driverId → drivers.driverId"
+
+  qualifying:
+    summary: Qualifying session results for each driver and race.
+    columns:
+      - name: qualifyId
+        type: integer
+        role: primary_key
+        description: Unique ID for this qualifying result row.
+      - name: raceId
+        type: integer
+        description: Race ID.
+      - name: driverId
+        type: integer
+        description: Driver ID.
+      - name: constructorId
+        type: integer
+        description: Constructor/team ID.
+      - name: number
+        type: integer
+        description: Car number.
+      - name: position
+        type: integer
+        description: Qualifying position.
+      - name: q1
+        type: text
+        description: Q1 lap time, if set.
+      - name: q2
+        type: text
+        description: Q2 lap time, if set.
+      - name: q3
+        type: text
+        description: Q3 lap time, if set.
+    relationships:
+      - "qualifying.raceId → races.raceId"
+      - "qualifying.driverId → drivers.driverId"
+      - "qualifying.constructorId → constructors.constructorId"
+
+  status:
+    summary: Status codes describing how a driver finished or retired.
+    columns:
+      - name: statusId
+        type: integer
+        role: primary_key
+        description: Unique status ID.
+      - name: status
+        type: text
+        description: Text description (e.g. 'Finished', 'Accident', 'Engine').
+    relationships:
+      - "results.statusId → status.statusId"
+      - "sprint_results.statusId → status.statusId"
