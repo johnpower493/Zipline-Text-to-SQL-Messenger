@@ -6,6 +6,7 @@ import re
 from typing import Optional
 from config.settings import config
 from core.guardrails import sanitize_sql
+from services.database import DatabaseService
 
 # Optional import for Groq support
 try:
@@ -17,6 +18,32 @@ except ImportError:
 class LLMService:
     """Handles LLM operations for SQL generation."""
     
+    @staticmethod
+    def _extract_constructor_keyword(text: str) -> Optional[str]:
+        if not text:
+            return None
+        t = text.lower()
+        teams = [
+            "red bull", "mercedes", "ferrari", "mclaren", "aston martin", "alpine",
+            "williams", "haas", "alphatauri", "rb", "sauber", "andretti"
+        ]
+        for team in teams:
+            if team in t:
+                return team
+        return None
+
+    @staticmethod
+    def _sql_has_constructor_filter(sql: str, team_kw: str) -> bool:
+        s = (sql or "").lower()
+        if "constructors" not in s:
+            return False
+        if team_kw and team_kw not in s:
+            # allow partial match on constructorRef-like tokens
+            ref = team_kw.replace(" ", "_")
+            if ref not in s:
+                return False
+        return True
+
     @staticmethod
     def _get_groq_client() -> Optional[OpenAI]:
         """Get configured Groq client."""
@@ -30,23 +57,84 @@ class LLMService:
     @staticmethod
     def generate_prompt(question: str, schema: str) -> str:
         """
-        Generate a prompt for the LLM to create SQL queries.
-        
-        Args:
-            question: Natural language question
-            schema: Database schema description
-            
-        Returns:
-            Formatted prompt string
+        Generate a robust prompt for SQL generation with clear constraints and hints.
         """
-        return (
+        guidance = (
             "You are a strict SQLite SQL generator. "
-            "Always respond with ONLY a valid SQLite SELECT statement (no explanations, no markdown fences). "
-            "Use the provided schema. Avoid DDL/DML; only read data. "
-            f"\n\nSCHEMA:\n{schema}\n\n"
+            "Return ONLY a valid SQLite SELECT statement. No explanations. No comments. No markdown fences. "
+            "Use only tables and columns from the provided schema context. Prefer explicit JOIN ... ON ... using the foreign keys shown. "
+            "Use aliases sparingly and include a LIMIT if appropriate."
+        )
+        join_hints = (
+            "Guidelines: Use INNER JOIN or LEFT JOIN as needed; join keys are given by FKs[...] in the schema context. "
+            "Honor entity filters in the question (e.g., constructor/team names, driver names, seasons/years). Join drivers/constructors/races/results appropriately to enforce filters. "
+            "Avoid subqueries unless necessary. Avoid window functions unless asked."
+        )
+        domain_hints = LLMService._build_f1_hints_and_examples(schema, question)
+        domain_block = f"\n\nDOMAIN HINTS:\n{domain_hints}\n" if domain_hints else ""
+        return (
+            f"{guidance}\n\n"
+            f"SCHEMA CONTEXT:\n{schema}\n\n"
+            f"JOIN HINTS:\n{join_hints}{domain_block}\n"
             f"Question: {question}\n"
             "SQL:"
         )
+
+    @staticmethod
+    def _build_f1_hints_and_examples(schema: str, question: str) -> str:
+        """Return F1-specific join hints and few-shot examples when F1 tables are present."""
+        s = schema.lower()
+        q = (question or "").lower()
+        required = all(tok in s for tok in ["drivers(", "results(", "races(", "constructors("])
+        if not required:
+            return ""
+        # basic detector for relevance
+        if not any(k in q for k in ["driver", "constructor", "race", "points", "season", "year", "grand prix", "red bull", "mercedes", "ferrari"]):
+            # still show hints if schema is F1, but keep examples minimal
+            show_examples = False
+        else:
+            show_examples = True
+        lines = []
+        lines.append("Common F1 joins:")
+        lines.append("- results.driverId = drivers.driverId")
+        lines.append("- results.raceId = races.raceId")
+        lines.append("- results.constructorId = constructors.constructorId")
+        lines.append("- driver_standings.driverId = drivers.driverId (if available)")
+        lines.append("- driver_standings.raceId = races.raceId (if available)")
+        lines.append("- constructor_standings.constructorId = constructors.constructorId (if available)")
+        lines.append("- constructor_standings.raceId = races.raceId (if available)")
+        lines.append("")
+        lines.append("Filters:")
+        lines.append("- Season/year: filter on races.year = <year>")
+        lines.append("- Team/constructor: filter via constructors.name or constructors.constructorRef after joining through results/standings")
+        lines.append("- Driver name: use drivers.forename/surname/code")
+        if show_examples:
+            lines.append("")
+            lines.append("Examples (adapt as needed):")
+            # Example 1: Red Bull driver points 2023
+            lines.append("-- Red Bull driver total points in 2023")
+            lines.append("SELECT d.driverId, d.forename || ' ' || d.surname AS driver_name, SUM(ds.points) AS total_points")
+            lines.append("FROM driver_standings ds")
+            lines.append("JOIN races r ON r.raceId = ds.raceId")
+            lines.append("JOIN drivers d ON d.driverId = ds.driverId")
+            lines.append("JOIN results res ON res.driverId = d.driverId AND res.raceId = r.raceId")
+            lines.append("JOIN constructors c ON c.constructorId = res.constructorId")
+            lines.append("WHERE r.year = 2023 AND c.name LIKE '%Red Bull%' ")
+            lines.append("GROUP BY d.driverId, driver_name")
+            lines.append("ORDER BY total_points DESC")
+            lines.append("LIMIT 10")
+            # Example 2: Constructor points by race in a season
+            lines.append("")
+            lines.append("-- Constructor total points by race in 2023")
+            lines.append("SELECT r.name AS grand_prix, c.name AS constructor, SUM(cr.points) AS points")
+            lines.append("FROM constructor_results cr")
+            lines.append("JOIN races r ON r.raceId = cr.raceId")
+            lines.append("JOIN constructors c ON c.constructorId = cr.constructorId")
+            lines.append("WHERE r.year = 2023")
+            lines.append("GROUP BY r.raceId, c.constructorId")
+            lines.append("ORDER BY r.round, points DESC")
+            lines.append("LIMIT 50")
+        return "\n".join(lines)
     
     @staticmethod
     def _call_ollama(prompt: str) -> Optional[str]:
@@ -60,6 +148,7 @@ class LLMService:
                         {"role": "system", "content": "You are a helpful assistant."},
                         {"role": "user", "content": prompt},
                     ],
+                    "options": {"temperature": 0},
                     "stream": False
                 },
                 timeout=config.LLM_TIMEOUT
@@ -78,33 +167,59 @@ class LLMService:
     
     @staticmethod
     def _call_groq(prompt: str) -> Optional[str]:
-        """Call Groq API for LLM generation."""
-        try:
-            client = LLMService._get_groq_client()
-            if not client:
-                print("Groq client not available (missing OpenAI package or API key)")
-                return None
-            
-            response = client.chat.completions.create(
-                model=config.GROQ_MODEL,
-                messages=[
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0,  # More deterministic for SQL generation
-                max_tokens=1000,
-                timeout=config.LLM_TIMEOUT
-            )
-            
-            content = response.choices[0].message.content
-            return content.strip() if content else None
-            
-        except Exception as e:
-            print(f"Groq API error: {e}")
+        """Call Groq API for LLM generation with basic 429-retry backoff."""
+        client = LLMService._get_groq_client()
+        if not client:
+            print("Groq client not available (missing OpenAI package or API key)")
             return None
+        import time
+        attempts = 3
+        backoff = 2
+        for i in range(attempts):
+            try:
+                response = client.chat.completions.create(
+                    model=config.GROQ_MODEL,
+                    messages=[
+                        {"role": "system", "content": "You are a helpful assistant."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    temperature=0,  # More deterministic for SQL generation
+                    max_tokens=1000,
+                    timeout=config.LLM_TIMEOUT
+                )
+                content = response.choices[0].message.content
+                return content.strip() if content else None
+            except Exception as e:
+                msg = str(e)
+                if "429" in msg or "rate" in msg.lower():
+                    sleep_for = backoff ** i
+                    print(f"Groq rate limit hit, retrying in {sleep_for}s (attempt {i+1}/{attempts})")
+                    time.sleep(sleep_for)
+                    continue
+                print(f"Groq API error: {e}")
+                return None
+        return None
     
     @staticmethod
-    def get_sql_query(question: str, schema: str) -> Optional[str]:
+    def _repair_sql(question: str, schema: str, original_sql: str, error_message: str) -> Optional[str]:
+        """Ask the LLM to repair SQL based on a SQLite error, returning a corrected SELECT."""
+        repair_prompt = (
+            "You previously generated a SQLite SELECT query that caused an error. "
+            "Revise the SQL to fix the error while preserving the user's intent. "
+            "Return ONLY a valid SQLite SELECT statement. No comments or markdown.\n\n"
+            f"Error: {error_message}\n\n"
+            f"Original SQL:\n{original_sql}\n\n"
+            f"Question: {question}\n"
+            "SQL:"
+        )
+        # Choose backend based on configuration
+        if config.LLM_BACKEND == "groq":
+            return LLMService._call_groq(repair_prompt)
+        else:
+            return LLMService._call_ollama(repair_prompt)
+
+    @staticmethod
+    def get_sql_query(question: str, schema: str, compact_schema: Optional[str] = None) -> Optional[str]:
         """
         Generate a SQL query from a natural language question.
         
@@ -118,7 +233,25 @@ class LLMService:
         if not question or not schema:
             return None
             
-        prompt = LLMService.generate_prompt(question, schema)
+        # Optionally use RAG to reduce schema context
+        rag_schema = None
+        # If a compact_schema is provided by the caller (e.g., /askdb pre-retrieval), use it
+        if compact_schema:
+            rag_schema = compact_schema
+        elif getattr(config, 'USE_RAG', False):
+            try:
+                from rag.retriever import SchemaRetriever, build_context_block
+                retriever = SchemaRetriever()
+                retrieved = retriever.retrieve_relevant_schema(question)
+                compact = build_context_block(retrieved)
+                if compact:
+                    print(f"[RAG] Retrieved tables: {retrieved.get('tables')}")
+                    print(f"[RAG] Retrieved columns: {retrieved.get('columns')}")
+                    rag_schema = compact
+            except Exception as e:
+                print(f"[RAG] Retrieval failed, falling back to full schema: {e}")
+                rag_schema = None
+        prompt = LLMService.generate_prompt(question, rag_schema or schema)
         
         # Choose backend based on configuration
         if config.LLM_BACKEND == "groq":
@@ -139,13 +272,52 @@ class LLMService:
             if not re.match(r"^\s*(WITH\s+.+?\s+)?SELECT\b", content, re.IGNORECASE | re.DOTALL):
                 print(f"LLM generated non-SELECT query: {content}")
                 return None
+
+            # If a constructor/team is in question but SQL lacks constructor filter, repair pre-EXPLAIN
+            team_kw = LLMService._extract_constructor_keyword(question)
+            if team_kw and not LLMService._sql_has_constructor_filter(content, team_kw):
+                guidance = (
+                    "The query must filter to the specified constructor/team by joining through results to constructors "
+                    f"and applying a filter on constructors.name or constructorRef that matches '{team_kw}'."
+                )
+                repair_prompt = (
+                    "Revise the following SQLite SELECT to enforce the constructor/team filter. "
+                    "Return ONLY a valid SQLite SELECT. No comments or markdown.\n\n"
+                    f"Guidance: {guidance}\n\nOriginal SQL:\n{content}\n\nQuestion: {question}\nSQL:"
+                )
+                content2 = LLMService._call_groq(repair_prompt) if config.LLM_BACKEND == "groq" else LLMService._call_ollama(repair_prompt)
+                if content2:
+                    content2 = content2.strip().strip('`').rstrip(';').strip()
+                    if re.match(r"^\s*(WITH\s+.+?\s+)?SELECT\b", content2, re.IGNORECASE | re.DOTALL):
+                        content = content2
             
             # Apply guardrails
             is_safe, safe_sql, reason = sanitize_sql(content, config.DEFAULT_LIMIT)
             if not is_safe:
                 print(f"Guardrails rejected SQL: {reason} - {content}")
                 return None
-                
+
+            # Judge with EXPLAIN; attempt single repair on error
+            preflight = DatabaseService.explain_query(safe_sql)
+            if 'error' in preflight:
+                print(f"[SQL Preflight] EXPLAIN error: {preflight['error']}. Attempting repair...")
+                repaired = LLMService._repair_sql(question, schema, safe_sql, preflight['error'])
+                if repaired:
+                    # Clean and sanitize repaired SQL
+                    repaired = repaired.strip().strip('`').rstrip(';').strip()
+                    if re.match(r"^\s*(WITH\s+.+?\s+)?SELECT\b", repaired, re.IGNORECASE | re.DOTALL):
+                        ok, safe_repaired, reason2 = sanitize_sql(repaired, config.DEFAULT_LIMIT)
+                        if ok:
+                            preflight2 = DatabaseService.explain_query(safe_repaired)
+                            if 'ok' in preflight2:
+                                return safe_repaired
+                            else:
+                                print(f"[SQL Preflight] Repaired EXPLAIN failed: {preflight2['error']}")
+                        else:
+                            print(f"[Repair] Guardrails rejected repaired SQL: {reason2}")
+                # If repair failed, fall back to original if preflight allowed? Otherwise None
+                return None
+
             return safe_sql
             
         except Exception as e:

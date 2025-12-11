@@ -1,4 +1,34 @@
 # CircularQuery - Release 1
+
+## RAG for Schema-Scoped SQL Generation (Optional)
+
+This app can optionally use a lightweight RAG layer to scale SQL generation across large schemas without exceeding the LLM context window.
+
+- Embeddings: BAAI/bge-small-en-v1.5 (via sentence-transformers)
+- Vector DB: Chroma (local, in-process)
+- Scope: Indexes tables and columns; retrieves the most relevant ones per question; injects a compact schema subset into the LLM prompt.
+
+How it works:
+1) Indexer reads your DB schema via SQLite PRAGMAs and creates table/column entries with metadata.
+2) Retriever embeds the question and queries the local vector DB.
+3) LLM prompt uses only the retrieved tables and columns.
+
+Enable RAG:
+- Set `USE_RAG=true` in your environment.
+- Build the index once: `python -m rag.schema_indexer` (uses configured `SQLITE_PATH`).
+
+Configuration (env):
+- USE_RAG=true/false (default false)
+- RAG_PERSIST_DIR=./rag_index
+- RAG_TOP_K_TABLES=5
+- RAG_TOP_N_COLUMNS=8
+
+CLI:
+- `python -m rag.schema_indexer --config path/to/schema.yaml` (config is optional; current indexer introspects the SQLite DB).
+
+Fallback behavior:
+- If RAG is disabled or retrieval fails, the system falls back to the full schema prompt and logs a warning.
+
 ## Your Local AI data analyst - inside Slack
 <div style="display: flex; align-items: center; gap: 12px;">
   <img src="examples/logo-small.png" alt="CircularQuery logo" width="256">

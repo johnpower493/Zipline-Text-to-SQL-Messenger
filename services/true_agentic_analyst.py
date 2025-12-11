@@ -22,7 +22,9 @@ class TrueAgenticAnalyst:
     """
     
     def __init__(self):
-        self.max_iterations = 5
+        # Reduce iterations if RAG is enabled to mitigate rate limits
+        self.max_iterations = getattr(config, 'AGENT_MAX_ITER_RAG', 3) if getattr(config, 'USE_RAG', False) else 5
+        self.max_duration_seconds = getattr(config, 'LLM_TIMEOUT', 120) * 2  # hard wall-clock cap
         self.findings_history = []
         self.reasoning_chain = []
     
@@ -66,13 +68,37 @@ class TrueAgenticAnalyst:
             # Step 3: Iterative investigation
             print(f"[AGENTIC] Step 3: Starting iterative investigation...")
             current_focus = hypothesis.get("initial_query_focus", "")
+
+            # RAG once per investigation: build compact schema once and reuse
+            compact_schema = None
+            if getattr(config, 'USE_RAG', False):
+                try:
+                    from rag.retriever import SchemaRetriever, build_context_block
+                    retriever = SchemaRetriever()
+                    retrieved = retriever.retrieve_relevant_schema(question)
+                    compact_schema = build_context_block(retrieved)
+                    if compact_schema:
+                        print(f"[RAG] (askdb) Reusing compact schema. Tables: {retrieved.get('tables')}")
+                except Exception as e:
+                    print(f"[RAG] (askdb) Pre-retrieval failed: {e}")
+                    compact_schema = None
             
             for iteration in range(self.max_iterations):
+                # Hard wall-clock timeout to prevent Slack hangs
+                if time.time() - start_time > self.max_duration_seconds:
+                    print(f"[AGENTIC] Max duration reached, synthesizing partial answer")
+                    break
                 print(f"[AGENTIC] --- Iteration {iteration + 1}/{self.max_iterations} ---")
+                
+                # Optional pacing delay to reduce rate-limit bursts
+                try:
+                    time.sleep(getattr(config, 'AGENT_ITERATION_DELAY', 1.0))
+                except Exception:
+                    pass
                 
                 # Generate next query based on current understanding
                 next_query = self._generate_focused_query(
-                    current_focus, question, schema, iteration
+                    current_focus, question, schema, iteration, compact_schema=compact_schema
                 )
                 
                 if not next_query:
@@ -170,7 +196,7 @@ Create an investigation plan with ONLY this JSON format:
         
         return self._call_llm_for_json(prompt, "hypothesis")
     
-    def _generate_focused_query(self, focus: str, question: str, schema: str, iteration: int) -> Optional[str]:
+    def _generate_focused_query(self, focus: str, question: str, schema: str, iteration: int, compact_schema: Optional[str] = None) -> Optional[str]:
         """Generate a focused query using the same proven method as /dd command."""
         from services.llm import LLMService
         
@@ -204,7 +230,7 @@ Create an investigation plan with ONLY this JSON format:
         print(f"[AGENTIC] Focused question for iteration {iteration + 1}: {focused_question}")
         
         # Use the PROVEN /dd SQL generation method
-        sql_query = LLMService.get_sql_query(focused_question, schema)
+        sql_query = LLMService.get_sql_query(focused_question, schema, compact_schema=compact_schema)
         
         if sql_query:
             print(f"[AGENTIC] /dd-style generation succeeded: {sql_query}")

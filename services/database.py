@@ -94,6 +94,22 @@ class DatabaseService:
         return DatabaseService.load_schema_from_sqlite(config.SQLITE_PATH)
     
     @staticmethod
+    def explain_query(sql_query: str) -> Dict[str, Any]:
+        """
+        Preflight validation of SQL using EXPLAIN QUERY PLAN.
+        Returns {'ok': True} or {'error': '...'}
+        """
+        try:
+            con = sqlite3.connect(f"file:{config.SQLITE_PATH}?mode=ro", uri=True)
+            cur = con.cursor()
+            cur.execute(f"EXPLAIN QUERY PLAN {sql_query}")
+            _ = cur.fetchall()
+            con.close()
+            return {"ok": True}
+        except Exception as e:
+            return {"error": str(e)}
+
+    @staticmethod
     def execute_query(sql_query: str) -> Dict[str, Any]:
         """
         Execute a SQL query and return results as JSON.

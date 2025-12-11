@@ -25,6 +25,19 @@ class Config:
     GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
     GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
     
+    # RAG Configuration
+    USE_RAG = os.getenv("USE_RAG", "false").lower() in ("1", "true", "yes")
+    RAG_PERSIST_DIR = os.getenv("RAG_PERSIST_DIR", "./rag_index")
+    RAG_TOP_K_TABLES = int(os.getenv("RAG_TOP_K_TABLES", "5"))
+    RAG_TOP_N_COLUMNS = int(os.getenv("RAG_TOP_N_COLUMNS", "8"))
+
+    # Agent pacing (to mitigate rate limits during RAG-enabled investigations)
+    AGENT_MAX_ITER_RAG = int(os.getenv("AGENT_MAX_ITER_RAG", "3"))
+    AGENT_ITERATION_DELAY = float(os.getenv("AGENT_ITERATION_DELAY", "1.0"))
+
+    # Routing /askdb behavior
+    ASKDB_FORCE_AGENTIC = os.getenv("ASKDB_FORCE_AGENTIC", "false").lower() in ("1", "true", "yes")
+    
     # Database Configuration
     SQLITE_PATH = os.getenv("SQLITE_PATH", "./chinook.db")
     SCHEMA_YAML_PATH = os.getenv("SCHEMA_YAML_PATH", "./schema.yaml")

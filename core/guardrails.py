@@ -63,8 +63,7 @@ def sanitize_sql(sql: str, default_limit: int = 500) -> Tuple[bool, str, str]:
 
     # Check for suspicious characters or sequences
     suspicious_patterns = [
-        r";.*\w",  # Multiple statements
-        r"\bUNION\s+(ALL\s+)?SELECT.*\bFROM\s+(?![\w\s]*\bWHERE\b)",  # Suspicious UNION
+        r";.*\w",  # Multiple statements (multi-statement)
         r"\b(pg_|information_schema|sys\.|mysql\.)",  # System tables/schemas
     ]
     

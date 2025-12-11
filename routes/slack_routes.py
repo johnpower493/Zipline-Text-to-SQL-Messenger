@@ -563,6 +563,9 @@ def _process_askdb_investigation(investigation_request: QueryRequest):
         
         # INTELLIGENT ROUTING: Decide between simple query vs complex investigation
         use_agentic, routing_reason = query_router.should_use_agentic(investigation_request.question)
+        if getattr(config, 'ASKDB_FORCE_AGENTIC', False):
+            use_agentic = True
+            routing_reason = "Forced agentic via config"
         print(f"[DEBUG] Query routing decision: {routing_reason}")
         
         if use_agentic:
