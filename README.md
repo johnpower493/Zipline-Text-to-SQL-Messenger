@@ -1,4 +1,4 @@
-# CircularQuery - Release 1
+# Zipline - Release 1
 
 ## RAG for Schema-Scoped SQL Generation (Optional)
 
@@ -31,7 +31,6 @@ Fallback behavior:
 
 ## Your Local AI data analyst - inside Slack
 <div style="display: flex; align-items: center; gap: 12px;">
-  <img src="examples/logo-small.png" alt="CircularQuery logo" width="256">
   <p>
     Ask questions in Slack → get <strong>safe, read-only SQL</strong> (SQLite) via
     <strong>Ollama</strong> (local models) or <strong>Groq</strong> (cloud models), plus
@@ -41,7 +40,7 @@ Fallback behavior:
 </div>
 
 
-> Works with `/dd` (CircularQuery SQL assistant), CSV exports, and "Plot Data" interactivity.
+> Works with `/dd` (Zipline SQL assistant), CSV exports, and "Plot Data" interactivity.
 
 ---
 
@@ -103,8 +102,8 @@ Fallback behavior:
 
 ### 2) Clone & install
 
-`git clone https://github.com/johnpower493/CircularQuery.git` \
-`cd CircularQuery` \
+`git clone https://github.com/johnpower493/Zipline-Text-to-SQL-Messenger.git` \
+`cd Zipline-Text-to-SQL-Messenger` \
 `python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate` \
 `pip install -r requirements.txt` \
 
@@ -186,7 +185,7 @@ ngrok http http://localhost:5000
 
 ### 7) In Slack
 
-Invite the bot/app to your channel: /invite @CircularQuery
+Invite the bot/app to your channel: /invite @Zipline
 
 **Try Data Queries:**
 - `/dd top 5 customers by total spend`
